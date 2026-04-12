@@ -1,0 +1,68 @@
+$ip = "%TARGET%"
+$ports = 1..10000
+$timeoutMs = 100
+$concurrency = 500
+Write-Host "Start Scan $ip ..." -ForegroundColor Cyan
+$startTime = Get-Date
+$portQueue = [System.Collections.Generic.Queue[int]]::new()
+foreach ($p in $ports) { $portQueue.Enqueue($p) }
+$activeTasks = [System.Collections.Generic.List[PSCustomObject]]::new()
+$tasksToRemove = [System.Collections.Generic.List[PSCustomObject]]::new()
+$openPorts = [System.Collections.Generic.List[int]]::new()
+while ($portQueue.Count -gt 0 -or $activeTasks.Count -gt 0) {
+    
+    while ($activeTasks.Count -lt $concurrency -and $portQueue.Count -gt 0) {
+        $port = $portQueue.Dequeue()
+        $client = [System.Net.Sockets.TcpClient]::new()
+        
+        try {
+            $iar = $client.BeginConnect($ip, $port, $null, $null)
+            $activeTasks.Add([PSCustomObject]@{
+                Port        = $port
+                Client      = $client
+                AsyncResult = $iar
+                Timer       = [System.Diagnostics.Stopwatch]::StartNew()
+            })
+        } catch {
+            $client.Dispose()
+        }
+    }
+
+    $tasksToRemove.Clear()
+    foreach ($task in $activeTasks) {
+        $isCompleted = $task.AsyncResult.IsCompleted
+        $isTimedOut  = $task.Timer.ElapsedMilliseconds -ge $timeoutMs
+
+        if ($isCompleted -or $isTimedOut) {
+            if ($isCompleted) {
+                try {
+                    $task.Client.EndConnect($task.AsyncResult)
+                    $openPorts.Add($task.Port) 
+                } catch {}
+            }
+            
+            $task.Client.Close()
+            $task.Client.Dispose()
+            $tasksToRemove.Add($task)
+        }
+    }
+
+    foreach ($task in $tasksToRemove) {
+        $activeTasks.Remove($task) | Out-Null
+    }
+
+    [System.Threading.Thread]::Sleep(1)
+}
+
+$endTime = Get-Date
+$elapsed = ($endTime - $startTime).TotalSeconds
+Write-Host "Scan complete，Total network I/O time: $elapsed Second" -ForegroundColor Yellow
+
+Write-Host "`n--- Open ports ---"
+if ($openPorts.Count -gt 0) {
+    $openPorts | Sort-Object | ForEach-Object {
+        Write-Host "Port open $_" -ForegroundColor Green
+    }
+} else {
+    Write-Host "No open ports found" -ForegroundColor Gray
+}
