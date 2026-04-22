@@ -1,0 +1,2 @@
+#系统是 Windows 10以上
+for /L %p in (1,1,1000) do @start /b cmd /c "curl -s telnet://10.9.20.12:%p --connect-timeout 1 >nul 2>&1 && echo Port %p Open"

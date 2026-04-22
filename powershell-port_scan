@@ -1,0 +1,64 @@
+$ip = "127.0.0.1"  #输入IP
+$ports = 1..10000
+$timeoutMs = 100
+$concurrency = 500
+$svc = @{21='FTP';22='SSH';23='Telnet';25='SMTP';53='DNS';80='HTTP';110='POP3';135='MSRPC';139='NetBIOS';143='IMAP';389='LDAP';443='HTTPS';445='SMB';1433='MSSQL';1521='Oracle';3306='MySQL';3389='RDP';5432='PostgreSQL';5985='WinRM';6379='Redis';8080='HTTP-Alt';8443='HTTPS-Alt'}
+Write-Host "Start Scan $ip ($($ports[0])-$($ports[-1])) ..." -ForegroundColor Cyan
+$startTime = Get-Date
+$portQueue = [System.Collections.Generic.Queue[int]]::new()
+foreach ($p in $ports) { $portQueue.Enqueue($p) }
+$activeTasks = [System.Collections.Generic.List[PSCustomObject]]::new()
+$openPorts = [System.Collections.Generic.List[int]]::new()
+while ($portQueue.Count -gt 0 -or $activeTasks.Count -gt 0) {
+    
+    while ($activeTasks.Count -lt $concurrency -and $portQueue.Count -gt 0) {
+        $port = $portQueue.Dequeue()
+        $client = [System.Net.Sockets.TcpClient]::new()
+        
+        try {
+            $iar = $client.BeginConnect($ip, $port, $null, $null)
+            $activeTasks.Add([PSCustomObject]@{
+                Port        = $port
+                Client      = $client
+                AsyncResult = $iar
+                Timer       = [System.Diagnostics.Stopwatch]::StartNew()
+            })
+        } catch {
+            $client.Dispose()
+        }
+    }
+
+    for ($i = $activeTasks.Count - 1; $i -ge 0; $i--) {
+        $task = $activeTasks[$i]
+        $isCompleted = $task.AsyncResult.IsCompleted
+        $isTimedOut  = $task.Timer.ElapsedMilliseconds -ge $timeoutMs
+
+        if ($isCompleted -or $isTimedOut) {
+            if ($isCompleted) {
+                try {
+                    $task.Client.EndConnect($task.AsyncResult)
+                    $openPorts.Add($task.Port) 
+                } catch {}
+            }
+            
+            $task.Client.Close()
+            $task.Client.Dispose()
+            $activeTasks.RemoveAt($i)
+        }
+    }
+
+    [System.Threading.Thread]::Sleep(5)
+}
+
+$elapsed = ((Get-Date) - $startTime).TotalSeconds
+Write-Host "Scan complete, Total time: $([math]::Round($elapsed,2))s" -ForegroundColor Yellow
+
+Write-Host "`n--- Open ports ---"
+if ($openPorts.Count -gt 0) {
+    $openPorts | Sort-Object | ForEach-Object {
+        $name = if ($svc.ContainsKey([int]$_)) { " ($($svc[[int]$_]))" } else { "" }
+        Write-Host "  Port $_ open$name" -ForegroundColor Green
+    }
+} else {
+    Write-Host "No open ports found" -ForegroundColor Gray
+}
