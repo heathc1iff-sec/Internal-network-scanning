@@ -1,3 +1,1 @@
-IP=127.0.0.1; for port in {1..1000}; do { echo >/dev/tcp/$IP/$port; } 2>/dev/null && echo "Port $port open" & sleep 0.01; done 
-
-TARGET=127.0.0.1; for p in {1..65535}; do (timeout 0.5 bash -c "echo >/dev/tcp/$TARGET/$p" && echo "OPEN: $p") & [ $((p % 128)) -eq 0 ] && wait; done  #old system
+( IP="192.168.50.12"; for p in {1..1000}; do (timeout 1 bash -c "</dev/tcp/$IP/$p" 2>/dev/null && echo "[+] Port $p is OPEN") & done; wait ) 2>/dev/null
