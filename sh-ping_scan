@@ -1,0 +1,1 @@
+sh -c 'for i in $(seq 1 254); do ping -c 1 -t 1 192.168.17.$i >/dev/null 2>&1 && echo "[+] 192.168.17.$i is UP" & done; wait'
